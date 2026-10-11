@@ -181,6 +181,13 @@ pub fn handle(app: &mut DesignApp, ctx: &egui::Context, req: &ControlRequest) ->
         }
         "ui.click" | "ui.drag" => {
             // Screen-space (egui points) pointer input through egui itself: reaches every widget.
+            let count = match p.get("count") {
+                None => 1,
+                Some(value) => match value.as_u64() {
+                    Some(count @ 1..=100) => count,
+                    _ => return err("pointer count must be an integer between 1 and 100"),
+                },
+            };
             let f = |k: &str| p.get(k).and_then(Value::as_f64).unwrap_or(0.0) as f32;
             let button = match s("button") {
                 Some("right") | Some("secondary") => egui::PointerButton::Secondary,
@@ -208,7 +215,6 @@ pub fn handle(app: &mut DesignApp, ctx: &egui::Context, req: &ControlRequest) ->
                 }
             }
             app.synthetic.push(egui::Event::PointerButton { pos: end, button, pressed: false, modifiers });
-            let count = p.get("count").and_then(Value::as_u64).unwrap_or(1);
             for _ in 1..count {
                 app.synthetic.push(egui::Event::PointerButton { pos: end, button, pressed: true, modifiers });
                 app.synthetic.push(egui::Event::PointerButton { pos: end, button, pressed: false, modifiers });
@@ -392,6 +398,21 @@ pub(crate) fn page_index(p: &Value, default: usize, count: usize) -> Result<usiz
 #[cfg(test)]
 mod automation_contract_tests {
     use super::*;
+
+    #[test]
+    fn excessive_pointer_counts_are_rejected_without_queuing_events() {
+        let mut app = app();
+        let ctx = egui::Context::default();
+        for method in ["ui.click", "ui.drag"] {
+            for count in [json!(0), json!(101), json!(u64::MAX), json!(-1), json!(1.5), json!("2")] {
+                assert_eq!(call(&mut app, &ctx, method, json!({"count":count}))["ok"], false);
+                assert!(app.synthetic.is_empty());
+            }
+            assert_eq!(call(&mut app, &ctx, method, json!({"count":2}))["ok"], true);
+            assert!(!app.synthetic.is_empty());
+            app.synthetic.clear();
+        }
+    }
     fn app() -> DesignApp {
         let mut app = DesignApp::new(designcraft_engine::Session::new(), crate::Services::default());
         app.session.execute("file.new", &json!({"pages":2})).unwrap();

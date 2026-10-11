@@ -6,6 +6,7 @@ Comment=Lay out magazines, books and print documents
 Exec=designcraft %F
 TryExec=designcraft
 Icon=ai.storyteller.designcraft
+MimeType=application/vnd.designcraft+zip;application/vnd.adobe.indesign-idml-package;
 Terminal=false
 StartupNotify=true
 StartupWMClass=ai.storyteller.designcraft

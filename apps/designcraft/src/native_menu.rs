@@ -39,10 +39,8 @@ impl NativeMenu {
         let app_menu = Submenu::new("DesignCraft", true);
         // Our own About splash (with the community links) instead of the stock panel.
         let about = MenuItem::with_id("dc-about", "About DesignCraft", true, None);
-        let discord = MenuItem::with_id("dc-discord", "Join the ArtCraft Discord…", true, None);
         let _ = app_menu.append_items(&[
             &about,
-            &discord,
             &PredefinedMenuItem::separator(),
             &PredefinedMenuItem::services(None),
             &PredefinedMenuItem::separator(),
@@ -53,7 +51,6 @@ impl NativeMenu {
             &PredefinedMenuItem::quit(None),
         ]);
         items.insert("dc-about".into(), ("help.about".into(), serde_json::Value::Null, Handle::Plain(about)));
-        items.insert("dc-discord".into(), ("help.discord".into(), serde_json::Value::Null, Handle::Plain(discord)));
         let _ = menu.append(&app_menu);
         for (title, entries) in menus::menu_tree() {
             let sub = Submenu::new(designcraft_ui_egui::i18n::tr(&app.ui.language, title), true);

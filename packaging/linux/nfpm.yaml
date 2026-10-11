@@ -28,10 +28,12 @@ description: |-
 overrides:
   deb:
     depends:
-      - libc6 (>= 2.35)
+      - libc6 (>= ${GLIBC_MIN_VERSION})
       - libgcc-s1
       - libxkbcommon0
-      - libvulkan1 | libegl1
+      - libxkbcommon-x11-0
+      - libvulkan1
+      - libegl1
     recommends:
       - libwayland-client0
       - libx11-6
@@ -40,11 +42,15 @@ overrides:
       - libxi6
       - libxrandr2
       - mesa-vulkan-drivers
+      - libegl-mesa0
+      - libgl1-mesa-dri
       - xdg-desktop-portal
+      - xdg-desktop-portal-gtk
   rpm:
     depends:
       - libxkbcommon
-      - (vulkan-loader or libglvnd-egl)
+      - vulkan-loader
+      - libglvnd-egl
     recommends:
       - libwayland-client
       - libX11

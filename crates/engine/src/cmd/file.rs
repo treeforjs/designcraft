@@ -25,9 +25,9 @@ pub fn specs() -> Vec<CommandSpec> {
         cmd!(noundo "file.saveAs", "Save As…", ["File"], Some("Cmd+Shift+S"), "{path}", has_doc, file_save),
         cmd!(noundo "file.saveACopy", "Save a Copy…", ["File"], None, "{path} — writes the document without changing which file it is or its unsaved state", has_doc, |s, p| {
             let path = str_param(p, "path").ok_or_else(|| bad("file.saveACopy", "missing `path`"))?.to_string();
-            let bytes = to_bytes(&s.doc()?.doc);
+            let bytes = to_bytes(&s.doc()?.doc)?;
             #[cfg(not(target_arch = "wasm32"))]
-            std::fs::write(&path, &bytes).map_err(|e| EngineError::Other(format!("{path}: {e}")))?;
+            designcraft_format::atomic::write_atomic(&path, &bytes).map_err(|e| EngineError::Other(format!("{path}: {e}")))?;
             Ok(json!({"path": path, "bytes": bytes.len()}))
         }),
         cmd!(noundo "file.revert", "Revert", ["File"], None, "{} — back to the last saved version (not undoable)", can_revert, file_revert),
@@ -47,7 +47,7 @@ pub fn specs() -> Vec<CommandSpec> {
             let st = s.doc()?;
             // Preview fill is session state. Serialize the unfilled template.
             let doc = st.preview_stash.as_deref().unwrap_or(st.doc.as_ref());
-            let bytes = to_bytes(doc);
+            let bytes = to_bytes(doc)?;
             Ok(json!({"base64": base64_encode(&bytes), "bytes": bytes.len()}))
         }),
         cmd!(noundo "file.close", "Close", ["File"], Some("Cmd+W"), "{index?}", has_doc, |s, p| {
@@ -107,8 +107,8 @@ pub fn specs() -> Vec<CommandSpec> {
     ]
 }
 
-pub fn to_bytes(d: &Document) -> Vec<u8> {
-    designcraft_format::save(d).unwrap_or_default()
+pub fn to_bytes(d: &Document) -> Result<Vec<u8>> {
+    designcraft_format::save(d).map_err(|e| EngineError::Other(e.to_string()))
 }
 
 pub fn from_bytes(b: &[u8]) -> Result<Document> {
@@ -245,9 +245,9 @@ fn file_save(s: &mut Session, p: &Value) -> Result<Value> {
             st.revision = st.revision.saturating_add(1);
         }
     }
-    let bytes = to_bytes(&st.doc);
+    let bytes = to_bytes(&st.doc)?;
     #[cfg(not(target_arch = "wasm32"))]
-    std::fs::write(&path, &bytes).map_err(|e| EngineError::Other(format!("{path}: {e}")))?;
+    designcraft_format::atomic::write_atomic(&path, &bytes).map_err(|e| EngineError::Other(format!("{path}: {e}")))?;
     st.path = Some(path.clone());
     st.saved_revision = st.revision;
     st.saved_doc = st.doc.clone();
@@ -511,12 +511,12 @@ fn place_drop(s: &mut Session, p: &Value) -> Result<Value> {
 
 /// The selection as `.designcraft` snippet bytes.
 pub(crate) fn snippet_bytes(s: &mut Session) -> Result<Vec<u8>> {
-    Ok(to_bytes(&super::edit::clip_doc(s)?))
+    to_bytes(&super::edit::clip_doc(s)?)
 }
 
 fn snippet_export(s: &mut Session, p: &Value) -> Result<Value> {
     let d = super::edit::clip_doc(s)?;
-    let bytes = to_bytes(&d);
+    let bytes = to_bytes(&d)?;
     match str_param(p, "path") {
         Some(path) => {
             #[cfg(not(target_arch = "wasm32"))]

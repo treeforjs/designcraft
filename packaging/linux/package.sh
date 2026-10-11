@@ -14,6 +14,9 @@
 # glibc 2.35) so the binaries run on newer ones. Optional: desktop-file-validate, appstreamcli,
 # zsyncmake (the zsync package) for the AppImage's .zsync.
 set -euo pipefail
+# Every output format contains public binaries and desktop data. In particular, cp -R into
+# the tar/AppImage trees must not inherit a private caller umask and hide installed resources.
+umask 022
 # shellcheck source=../env.sh
 . "$(dirname "${BASH_SOURCE[0]}")/../env.sh"
 HERE="$ROOT/packaging/linux"
@@ -44,7 +47,7 @@ echo "==> DesignCraft $VERSION for Linux $ARCH ($FORMATS)"
 if [ "$SKIP_BUILD" = 0 ]; then
   (cd "$ROOT" && cargo build --release --locked -p designcraft -p designcraft-cli)
 fi
-BIN="$CARGO_TARGET_DIR/release"
+BIN="${DESIGNCRAFT_BIN_DIR:-$CARGO_TARGET_DIR/release}"
 WORK="$CARGO_TARGET_DIR/linux-package"
 STAGE="$WORK/root"
 rm -rf "$WORK"
@@ -62,6 +65,8 @@ mkdir -p "$STAGE/usr/share/icons"
 cp -R "$ROOT/assets/app-icon/hicolor" "$STAGE/usr/share/icons/"
 mkdir -p "$STAGE/usr/share/doc/designcraft"
 copy_docs "$STAGE/usr/share/doc/designcraft"
+# Shared desktop data must remain readable even with a private builder umask.
+chmod -R u=rwX,go=rX "$STAGE/usr/share"
 
 if command -v desktop-file-validate >/dev/null; then
   desktop-file-validate "$STAGE/usr/share/applications/$APP_ID.desktop"
@@ -83,6 +88,13 @@ fi
 # ---- .deb / .rpm --------------------------------------------------------------------------------
 if has deb || has rpm; then
   command -v nfpm >/dev/null || { echo "error: nfpm not found (https://nfpm.goreleaser.com/install/)" >&2; exit 1; }
+  # A local build on a newer Ubuntu must not advertise the release runner's older glibc.
+  # Inspect both staged binaries, including --skip-build inputs from another build host.
+  command -v readelf >/dev/null || { echo "error: readelf not found (install binutils)" >&2; exit 1; }
+  GLIBC_MIN_VERSION="$(readelf --version-info "$STAGE/usr/bin/designcraft" "$STAGE/usr/bin/designcraft-cli" \
+    | grep -oE 'GLIBC_[0-9]+(\.[0-9]+)+' | sort -Vu | tail -n 1 | sed 's/GLIBC_//')"
+  [ -n "$GLIBC_MIN_VERSION" ] || { echo "error: could not determine the binaries' glibc requirement" >&2; exit 1; }
+  export GLIBC_MIN_VERSION
   export VERSION
   export NFPM_ARCH="$DEB_ARCH"
   # nfpm expands env vars in fields like `version` and `arch`, but not in `contents[].src`.

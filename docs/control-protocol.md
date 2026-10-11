@@ -44,3 +44,6 @@ merged document; the template stays as it was ([agents.md](agents.md#data-merge)
 Headless window screenshots (locked screen, hidden window): `cargo run -p designcraft-ui-egui --example ui_shot -- script.jsonl`, where each line is one of the requests above, `{"shot": "/abs/out.png"}` or `{"steps": n}` (renders the whole UI offscreen with wgpu).
 
 The MCP server (`designcraft-cli mcp`) wraps the same methods for Claude and other agents.
+
+Control connections idle for 10 seconds are closed; clients may reconnect before their next request.
+`ui.click` and `ui.drag` accept pointer `count` values from 1 to 100. Larger or zero counts are rejected before queuing events.

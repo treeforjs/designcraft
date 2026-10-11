@@ -39,19 +39,42 @@ fn default_reader(path: &str) -> Option<Vec<u8>> {
 
 /// Import with a custom reader for linked files (`path` → bytes).
 pub fn import_idml_with(bytes: &[u8], read_link: &dyn Fn(&str) -> Option<Vec<u8>>) -> Result<Document> {
+    let files = read_package(bytes, 512 << 20)?;
+    import_parts(files, read_link)
+}
+
+/// IDML parts are kept together in memory. Cap the complete expansion, including entries
+/// that the importer does not recognize, rather than only the initial allocation.
+fn read_package(bytes: &[u8], limit: u64) -> Result<HashMap<String, Vec<u8>>> {
     let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|e| IdmlError::NotIdml(e.to_string()))?;
+    if zip.len() > 65_536 {
+        return Err(IdmlError::NotIdml("too many archive entries".into()));
+    }
     let mut files: HashMap<String, Vec<u8>> = HashMap::new();
+    let mut remaining = limit;
     for i in 0..zip.len() {
-        let mut f = zip.by_index(i).map_err(|e| IdmlError::NotIdml(e.to_string()))?;
+        let f = zip.by_index(i).map_err(|e| IdmlError::NotIdml(e.to_string()))?;
         if f.is_dir() {
             continue;
         }
         let name = f.name().to_string();
-        // The size is what the archive claims: don't reserve more than a sane part up front.
-        let mut buf = Vec::with_capacity((f.size() as usize).min(1 << 24));
-        f.read_to_end(&mut buf).map_err(|e| IdmlError::Part { part: name.clone(), msg: e.to_string() })?;
+        if files.contains_key(&name) {
+            return Err(IdmlError::Part { part: name, msg: "duplicate archive member name".into() });
+        }
+        if f.size() > remaining {
+            return Err(IdmlError::Part { part: name, msg: "archive exceeds its unpacked size limit".into() });
+        }
+        let mut buf = Vec::new();
+        f.take(remaining.saturating_add(1)).read_to_end(&mut buf).map_err(|e| IdmlError::Part { part: name.clone(), msg: e.to_string() })?;
+        remaining = remaining
+            .checked_sub(buf.len() as u64)
+            .ok_or_else(|| IdmlError::Part { part: name.clone(), msg: "archive exceeds its unpacked size limit".into() })?;
         files.insert(name, buf);
     }
+    Ok(files)
+}
+
+fn import_parts(files: HashMap<String, Vec<u8>>, read_link: &dyn Fn(&str) -> Option<Vec<u8>>) -> Result<Document> {
     if let Some(m) = files.get("mimetype")
         && String::from_utf8_lossy(m).trim() != MIMETYPE
     {
@@ -2440,9 +2463,9 @@ pub(crate) fn uri_to_path(uri: &str) -> String {
     while i < b.len() {
         if b[i] == b'%'
             && i + 2 < b.len()
-            && let Ok(v) = u8::from_str_radix(&rest[i + 1..i + 3], 16)
+            && let (Some(a), Some(c)) = ((b[i + 1] as char).to_digit(16), (b[i + 2] as char).to_digit(16))
         {
-            out.push(v);
+            out.push((a * 16 + c) as u8);
             i += 3;
             continue;
         }
@@ -2450,4 +2473,30 @@ pub(crate) fn uri_to_path(uri: &str) -> String {
         i += 1;
     }
     String::from_utf8_lossy(&out).to_string()
+}
+
+#[cfg(test)]
+mod archive_tests {
+    use super::*;
+    use std::io::{Cursor, Write as _};
+
+    #[test]
+    fn all_parts_share_one_unpacked_budget() {
+        let mut z = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        for name in ["first.xml", "second.xml"] {
+            z.start_file(name, zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated)).unwrap();
+            z.write_all(&[b'a'; 16]).unwrap();
+        }
+        let bytes = z.finish().unwrap().into_inner();
+        assert!(read_package(&bytes, 24).is_err());
+        assert_eq!(read_package(&bytes, 32).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn malformed_percent_escapes_preserve_unicode_without_panicking() {
+        for path in ["file:/tmp/%€photo.png", "file:/tmp/%é.png", "file:/tmp/%A界.png", "file:/tmp/%"] {
+            assert_eq!(uri_to_path(path), path.strip_prefix("file:").unwrap());
+        }
+        assert_eq!(uri_to_path("file:/tmp/%E2%82%AC%20photo.png"), "/tmp/€ photo.png");
+    }
 }

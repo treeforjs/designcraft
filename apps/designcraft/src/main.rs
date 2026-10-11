@@ -169,7 +169,7 @@ fn services() -> Services {
         })),
         pick_save: Some(Box::new(|name: &str| rfd::FileDialog::new().set_file_name(name).save_file().map(|p| p.to_string_lossy().to_string()))),
         read: Some(Box::new(|p: &str| std::fs::read(p).map_err(|e| e.to_string()))),
-        write: Some(Box::new(|p: &str, b: &[u8]| std::fs::write(p, b).map_err(|e| e.to_string()))),
+        write: Some(Box::new(|p: &str, b: &[u8]| designcraft_format::atomic::write_atomic(p, b).map_err(|e| e.to_string()))),
         ..Default::default()
     }
 }
@@ -255,6 +255,17 @@ fn main() -> eframe::Result {
         "DesignCraft",
         options,
         Box::new(move |cc| {
+            if let Some(state) = &cc.wgpu_render_state {
+                let info = state.adapter.get_info();
+                log::info!(
+                    "graphics adapter: {} ({:?}, {:?}); driver {} {}",
+                    info.name,
+                    info.backend,
+                    info.device_type,
+                    info.driver,
+                    info.driver_info
+                );
+            }
             let mut session = Session::new();
             // Crash recovery: reopen what a previous run left unsaved, then keep it current.
             session.recovery_dir = designcraft_engine::recovery::default_dir();

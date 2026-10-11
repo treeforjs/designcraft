@@ -1,3 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/vnd.designcraft+zip">
+    <comment>DesignCraft document</comment>
+    <glob pattern="*.designcraft"/>
+  </mime-type>
+  <mime-type type="application/vnd.adobe.indesign-idml-package">
+    <comment>InDesign Markup document</comment>
+    <glob pattern="*.idml"/>
+  </mime-type>
 </mime-info>

@@ -27,9 +27,6 @@
   <img alt="Agent-drivable over MCP" src="https://img.shields.io/badge/agents-MCP-7bb51c?style=flat-square">
 </p>
 
-<p align="center">
-  <a href="https://discord.gg/artcraft"><img alt="Join the ArtCraft community on Discord" src="https://img.shields.io/badge/Join%20us%20on%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" height="40"></a>
-</p>
 
 <p align="center">
   <a href="https://getartcraft.com/apps/designcraft"><b>DesignCraft on getartcraft.com</b></a> ·
@@ -46,7 +43,7 @@
 
 > [!NOTE]
 > **ArtCraft is a community of artists from all walks of life.** Digital, generative, music,
-> games &mdash; if you make things, you're one of us. **[Come say hi on Discord](https://discord.gg/artcraft).**
+> games &mdash; if you make things, you're one of us.
 
 <p align="center">
   <a href="#the-sample-magazine">The sample magazine</a> ·
@@ -97,6 +94,10 @@ by its own renderer. Try it yourself with `File → New → Sample Document`, or
 - **Everywhere.** One Rust codebase for desktop and the web.
 
 ## Quick start
+
+Ubuntu 24.04/26.04 x86_64: see the [installation and graphics guide](docs/ubuntu.md).
+For Windows 11 GPU drivers and adapter selection, see [Windows graphics setup](docs/windows-gpu.md).
+Source builds require Rust 1.95 or newer.
 
 ```sh
 cargo run --release -p designcraft                         # desktop app (start screen)
@@ -238,21 +239,17 @@ And [**ArtCraft**](https://getartcraft.com/) itself, our AI image and video stud
 
 <br>
 
-<p align="center">
-  <a href="https://discord.gg/artcraft"><img alt="Join the ArtCraft community on Discord" src="https://img.shields.io/badge/Join%20us%20on%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" height="40"></a>
-</p>
 
 <h3 align="center">Come make things with us</h3>
 
 <p align="center">
-  Our Discord is where artists of every kind hang out: people who paint, shoot, draw, cut film,
+  ArtCraft brings together artists of every kind: people who paint, shoot, draw, cut film,
   set type, and people still figuring out what they like to make. Share what you're working on,
   ask for help, tell us what's broken, or tell us what you wish these tools could do.
   Whatever your medium and however long you've been at it, you're welcome here.
 </p>
 
 <p align="center">
-  <a href="https://discord.gg/artcraft"><b>discord.gg/artcraft</b></a> ·
   <a href="https://getartcraft.com/">getartcraft.com</a> ·
   <a href="https://getartcraft.com/apps">The Crafting Apps</a> ·
   <a href="https://getartcraft.com/apps/designcraft">DesignCraft</a>

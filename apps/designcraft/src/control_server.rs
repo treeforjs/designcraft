@@ -22,6 +22,8 @@ use serde_json::{Value, json};
 pub const MAX_LINE: usize = 4 * 1024 * 1024;
 /// Connections served at once; further ones get an error line and are closed.
 pub const MAX_CONNECTIONS: usize = 16;
+/// Idle clients must release their connection slot; stalled replies must not retain a worker.
+const IO_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub fn start(port: u16, ctx: egui::Context) -> Receiver<ControlRequest> {
     let (tx, rx) = channel::<ControlRequest>();
@@ -40,6 +42,9 @@ pub fn start(port: u16, ctx: egui::Context) -> Receiver<ControlRequest> {
 fn accept_loop(listener: TcpListener, tx: Sender<ControlRequest>, ctx: egui::Context) {
     let open = Arc::new(AtomicUsize::new(0));
     for mut stream in listener.incoming().flatten() {
+        if set_timeouts(&stream, IO_TIMEOUT).is_err() {
+            continue;
+        }
         if open.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
             open.fetch_sub(1, Ordering::SeqCst);
             let _ = writeln!(stream, "{}", json!({"ok": false, "error": "too many control connections"}));
@@ -53,6 +58,11 @@ fn accept_loop(listener: TcpListener, tx: Sender<ControlRequest>, ctx: egui::Con
             open.fetch_sub(1, Ordering::SeqCst);
         });
     }
+}
+
+fn set_timeouts(stream: &TcpStream, timeout: Duration) -> std::io::Result<()> {
+    stream.set_read_timeout(Some(timeout))?;
+    stream.set_write_timeout(Some(timeout))
 }
 
 fn serve(stream: TcpStream, tx: &Sender<ControlRequest>, ctx: &egui::Context) {
@@ -108,7 +118,13 @@ fn read_bounded_line(reader: &mut impl BufRead, buf: &mut Vec<u8>, max: usize) -
     buf.clear();
     // `take` bounds the bytes buffered for one line: a peer can't make us allocate more than `max`.
     let limit = u64::try_from(max).unwrap_or(u64::MAX).saturating_add(1);
-    let n = reader.take(limit).read_until(b'\n', buf).map_err(|e| e.to_string())?;
+    let n = match reader.take(limit).read_until(b'\n', buf) {
+        Ok(n) => n,
+        // Close silently so a persistent MCP client observes EOF and reconnects for its
+        // next request, instead of mistaking an unsolicited timeout reply for that request.
+        Err(e) if matches!(e.kind(), std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock) => return Ok(false),
+        Err(e) => return Err(e.to_string()),
+    };
     if n == 0 {
         return Ok(false);
     }
@@ -159,6 +175,24 @@ fn serve_lines<R: Read, W: Write>(read: R, mut out: W, mut handle: impl FnMut(St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_idle_connection_times_out_and_closes() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            set_timeouts(&stream, Duration::from_millis(100)).unwrap();
+            let read = stream.try_clone().unwrap();
+            serve_lines(read, stream, |_, _| panic!("an idle peer sent no request"));
+        });
+        let mut client = TcpStream::connect(addr).unwrap();
+        client.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        let mut reply = String::new();
+        client.read_to_string(&mut reply).unwrap();
+        server.join().unwrap();
+        assert!(reply.is_empty());
+    }
 
     fn run(input: &[u8]) -> (Vec<Value>, Vec<String>) {
         let mut out = Vec::new();

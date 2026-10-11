@@ -16,15 +16,20 @@ use std::sync::Arc;
 use designcraft_doc::{AssetId, Document};
 use serde_json::{Value, json};
 
+pub mod atomic;
+
 pub const MIME: &str = "application/vnd.designcraft+zip";
 pub const VERSION: u32 = 1;
+const MAX_JSON_BYTES: u64 = 128 << 20;
+const MAX_UNPACKED_BYTES: u64 = 512 << 20;
+const MAX_ENTRIES: usize = 65_536;
 
 #[derive(Debug, thiserror::Error)]
 pub enum FormatError {
     #[error("not a DesignCraft document: {0}")]
     NotOurs(String),
     #[error("document is from a newer DesignCraft (format {0}); please update")]
-    TooNew(u32),
+    TooNew(u64),
     #[error("{0}")]
     Io(String),
 }
@@ -82,20 +87,33 @@ pub fn load(bytes: &[u8]) -> Result<Document, FormatError> {
 
 fn load_zip(bytes: &[u8]) -> Result<Document, FormatError> {
     let mut z = zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| FormatError::NotOurs(e.to_string()))?;
-    let read = |z: &mut zip::ZipArchive<Cursor<&[u8]>>, name: &str| -> Option<Vec<u8>> {
-        let mut f = z.by_name(name).ok()?;
-        let mut v = Vec::new();
-        f.read_to_end(&mut v).ok()?;
-        Some(v)
-    };
-    if let Some(meta) = read(&mut z, "meta.json")
-        && let Ok(m) = serde_json::from_slice::<Value>(&meta)
-        && let Some(v) = m.get("version").and_then(Value::as_u64)
-        && v as u32 > VERSION
-    {
-        return Err(FormatError::TooNew(v as u32));
+    if z.len() > MAX_ENTRIES {
+        return Err(FormatError::NotOurs("too many archive entries".into()));
     }
-    let json = read(&mut z, "document.json").ok_or_else(|| FormatError::NotOurs("missing document.json".into()))?;
+    let mut total = 0u64;
+    let mut seen = HashSet::new();
+    for i in 0..z.len() {
+        let f = z.by_index(i).map_err(|e| FormatError::NotOurs(e.to_string()))?;
+        if !seen.insert(f.name().to_string()) {
+            return Err(FormatError::NotOurs("duplicate archive member name".into()));
+        }
+        total = total
+            .checked_add(f.size())
+            .filter(|&n| n <= MAX_UNPACKED_BYTES)
+            .ok_or_else(|| FormatError::NotOurs("archive expands beyond 512 MiB".into()))?;
+    }
+    let mut remaining = MAX_UNPACKED_BYTES;
+    if let Some(meta) = read_part(&mut z, "meta.json", 1 << 20, &mut remaining)? {
+        let m: Value = serde_json::from_slice(&meta).map_err(|e| FormatError::NotOurs(format!("meta.json: {e}")))?;
+        if let Some(value) = m.get("version") {
+            let v = value.as_u64().ok_or_else(|| FormatError::NotOurs("format version must be an unsigned integer".into()))?;
+            if v > u64::from(VERSION) {
+                return Err(FormatError::TooNew(v));
+            }
+        }
+    }
+    let json =
+        read_part(&mut z, "document.json", MAX_JSON_BYTES, &mut remaining)?.ok_or_else(|| FormatError::NotOurs("missing document.json".into()))?;
     let mut v: Value = serde_json::from_slice(&json).map_err(|e| FormatError::NotOurs(e.to_string()))?;
     upgrade(&mut v);
     let mut doc: Document = serde_json::from_value(v).map_err(|e| FormatError::NotOurs(e.to_string()))?;
@@ -103,7 +121,9 @@ fn load_zip(bytes: &[u8]) -> Result<Document, FormatError> {
     for name in names {
         let Some(stem) = name.strip_prefix("assets/") else { continue };
         let Some(id) = stem.split('.').next().and_then(|s| s.parse::<u64>().ok()) else { continue };
-        if let (Some(data), Some(a)) = (read(&mut z, &name), doc.assets.get_mut(&AssetId(id))) {
+        if let Some(a) = doc.assets.get_mut(&AssetId(id))
+            && let Some(data) = read_part(&mut z, &name, MAX_UNPACKED_BYTES, &mut remaining)?
+        {
             Arc::make_mut(a).data = Arc::new(data);
         }
     }
@@ -112,6 +132,9 @@ fn load_zip(bytes: &[u8]) -> Result<Document, FormatError> {
 }
 
 fn load_legacy_json(bytes: &[u8]) -> Result<Document, FormatError> {
+    if bytes.len() as u64 > MAX_JSON_BYTES {
+        return Err(FormatError::NotOurs("document JSON exceeds 128 MiB".into()));
+    }
     let mut v: Value = serde_json::from_slice(bytes).map_err(|e| FormatError::NotOurs(e.to_string()))?;
     upgrade(&mut v);
     let mut doc: Document = serde_json::from_value(v.clone()).map_err(|e| FormatError::NotOurs(e.to_string()))?;
@@ -126,6 +149,27 @@ fn load_legacy_json(bytes: &[u8]) -> Result<Document, FormatError> {
     }
     doc.check().map_err(|e| FormatError::NotOurs(e.to_string()))?;
     Ok(doc)
+}
+
+/// Bound both advertised and actual expansion, and never mistake a corrupt member for an
+/// absent optional member (especially an embedded image).
+fn read_part(z: &mut zip::ZipArchive<Cursor<&[u8]>>, name: &str, limit: u64, remaining: &mut u64) -> Result<Option<Vec<u8>>, FormatError> {
+    let f = match z.by_name(name) {
+        Ok(f) => f,
+        Err(zip::result::ZipError::FileNotFound) => return Ok(None),
+        Err(e) => return Err(FormatError::NotOurs(format!("{name}: {e}"))),
+    };
+    let advertised = f.size();
+    if advertised > limit.min(*remaining) {
+        return Err(FormatError::NotOurs(format!("{name}: archive member exceeds its size limit")));
+    }
+    let mut data = Vec::new();
+    f.take(advertised.saturating_add(1)).read_to_end(&mut data).map_err(|e| FormatError::NotOurs(format!("{name}: {e}")))?;
+    if data.len() as u64 != advertised {
+        return Err(FormatError::NotOurs(format!("{name}: archive member size does not match its header")));
+    }
+    *remaining = remaining.checked_sub(data.len() as u64).ok_or_else(|| FormatError::NotOurs("archive exceeds its unpacked size limit".into()))?;
+    Ok(Some(data))
 }
 
 /// Bring older documents' JSON up to the current model. Vertical Type was a text frame option
@@ -204,6 +248,70 @@ mod tests {
     use designcraft_doc::build::NewDocument;
     use designcraft_doc::geom::Rect;
     use designcraft_doc::{Asset, ParaFormat, SpreadRef};
+
+    fn archive(parts: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut z = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        for (name, bytes) in parts {
+            z.start_file(*name, zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated)).unwrap();
+            z.write_all(bytes).unwrap();
+        }
+        z.finish().unwrap().into_inner()
+    }
+
+    #[test]
+    fn archive_reads_share_an_expansion_budget() {
+        let bytes = archive(&[("first", &[0; 32]), ("second", &[0; 32])]);
+        let mut z = zip::ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap();
+        let mut remaining = 48;
+        assert_eq!(read_part(&mut z, "first", 64, &mut remaining).unwrap().unwrap().len(), 32);
+        assert_eq!(remaining, 16);
+        assert!(read_part(&mut z, "second", 64, &mut remaining).is_err());
+        assert!(read_part(&mut z, "missing", 64, &mut remaining).unwrap().is_none());
+    }
+
+    #[test]
+    fn underreported_archive_sizes_are_rejected() {
+        let mut bytes = archive(&[("first", &[0; 32])]);
+        let central = bytes.windows(4).position(|b| b == b"PK\x01\x02").unwrap();
+        bytes[central + 24..central + 28].copy_from_slice(&1u32.to_le_bytes());
+        let mut z = zip::ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap();
+        assert!(read_part(&mut z, "first", 64, &mut 64).is_err());
+    }
+
+    #[test]
+    fn malformed_metadata_and_large_versions_are_not_silently_ignored() {
+        let doc = serde_json::to_vec(&Document::new(&NewDocument::default())).unwrap();
+        for meta in [b"not JSON".as_slice(), br#"{"version":-1}"#, br#"{"version":1.5}"#, br#"{"version":"99"}"#] {
+            assert!(load(&archive(&[("document.json", &doc), ("meta.json", meta)])).is_err());
+        }
+        let bytes = archive(&[("document.json", &doc), ("meta.json", br#"{"version":4294967297}"#)]);
+        assert!(matches!(load(&bytes), Err(FormatError::TooNew(4_294_967_297))));
+    }
+
+    #[test]
+    fn corrupt_embedded_assets_are_reported_instead_of_dropped() {
+        let mut doc = Document::new(&NewDocument::default());
+        let id = AssetId(doc.alloc());
+        doc.assets.insert(
+            id,
+            Arc::new(Asset {
+                id,
+                page: 0,
+                name: "image.png".into(),
+                mime: "image/png".into(),
+                link: None,
+                data: Arc::new(vec![1, 2, 3, 4]),
+                pixels: Some((1, 1)),
+            }),
+        );
+        let mut bytes = save(&doc).unwrap();
+        let offset = {
+            let mut z = zip::ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap();
+            z.by_name(&format!("assets/{}.png", id.0)).unwrap().data_start() as usize
+        };
+        bytes[offset] ^= 0xff;
+        assert!(load(&bytes).is_err());
+    }
 
     #[test]
     fn roundtrip_with_assets() {

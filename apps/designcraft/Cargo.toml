@@ -11,6 +11,7 @@ workspace = true
 
 [dependencies]
 designcraft-engine = { workspace = true }
+designcraft-format = { workspace = true }
 designcraft-ui-egui = { workspace = true }
 eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit", "wayland", "x11", "links"] }
 egui = { workspace = true }

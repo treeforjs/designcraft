@@ -143,7 +143,8 @@ fn package(s: &mut Session, p: &Value) -> Result<Value> {
     let d = s.doc()?.doc.clone();
     let (packed, mut files) = write_links(&d, &dir.join("Links"), None)?;
     let doc_path = dir.join(format!("{title}.designcraft"));
-    std::fs::write(&doc_path, super::to_bytes(&packed)).map_err(|e| EngineError::Other(format!("{}: {e}", doc_path.display())))?;
+    designcraft_format::atomic::write_atomic(&doc_path, &super::to_bytes(&packed)?)
+        .map_err(|e| EngineError::Other(format!("{}: {e}", doc_path.display())))?;
     files.insert(0, doc_path);
     // The font files, and what the report says about each font.
     let db = designcraft_fonts::FontDb::global().scoped(d.font_scope);

@@ -1,5 +1,7 @@
 # DesignCraft roadmap
 
+- AUDIT1 (2026-10-11): bounded native/IDML archive expansion and XML nesting, UTF-8-safe link decoding, patched quick-xml, private atomic document/recovery saves, bounded control input/idle connections, and no automatic replay of uncertain MCP edits. Active Discord links removed. Ubuntu 24.04/26.04 x86_64 package/install/window smoke workflow and Ubuntu/Windows 11 GPU setup guides added.
+
 - FID1: PDF export normalizes mixed emitted gradient color spaces to RGB with an explicit warning; homogeneous device-space gradients retain their components. Linear/radial, midpoint, archival and print policies have synthetic regression coverage.
 
 - AR1.1: Kashida justification tests verify space fallback without Tatweel fonts using an isolated font database, while retaining elongation assertions when fonts support it.

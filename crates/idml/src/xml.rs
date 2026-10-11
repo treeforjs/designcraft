@@ -205,10 +205,16 @@ pub fn parse(bytes: &[u8]) -> Result<El, String> {
         let ev = r.read_event_into(&mut buf).map_err(|e| format!("XML error at {}: {e}", pos(&r)))?;
         match ev {
             Event::Start(e) => {
+                if stack.len() > 128 {
+                    return Err("XML nesting exceeds 128 elements".into());
+                }
                 let el = start_el(&e)?;
                 stack.push(el);
             }
             Event::Empty(e) => {
+                if stack.len() > 128 {
+                    return Err("XML nesting exceeds 128 elements".into());
+                }
                 let el = start_el(&e)?;
                 stack.last_mut().ok_or("unbalanced")?.push(el);
             }
@@ -283,7 +289,10 @@ fn start_el(e: &quick_xml::events::BytesStart) -> Result<El, String> {
     for a in e.attributes().with_checks(false) {
         let a = a.map_err(|e| e.to_string())?;
         let k = String::from_utf8_lossy(a.key.as_ref()).to_string();
-        let v = a.unescape_value().map(|v| v.to_string()).unwrap_or_else(|_| String::from_utf8_lossy(&a.value).to_string());
+        let v = a
+            .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+            .map(|v| v.to_string())
+            .unwrap_or_else(|_| String::from_utf8_lossy(&a.value).to_string());
         el.attrs.push((k, v));
     }
     Ok(el)
@@ -292,6 +301,14 @@ fn start_el(e: &quick_xml::events::BytesStart) -> Result<El, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn excessive_nesting_is_rejected_before_building_a_recursive_tree() {
+        let valid = format!("{}text{}", "<A>".repeat(128), "</A>".repeat(128));
+        assert_eq!(parse(valid.as_bytes()).unwrap().text_content(), "text");
+        let too_deep = format!("{}text{}", "<A>".repeat(129), "</A>".repeat(129));
+        assert!(parse(too_deep.as_bytes()).unwrap_err().contains("nesting"));
+    }
 
     #[test]
     fn roundtrip_text_pi_and_entities() {

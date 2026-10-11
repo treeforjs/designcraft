@@ -7,7 +7,7 @@ default-members = ["crates/*", "apps/designcraft", "apps/designcraft-cli", "xtas
 version = "0.5.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-rust-version = "1.90"
+rust-version = "1.95"
 repository = "https://github.com/storytold/designcraft"
 
 [workspace.dependencies]
@@ -61,7 +61,7 @@ flo_curves = "0.8"
 qrcodegen = "1.8"
 krilla = { version = "0.8", features = ["pdf"] }
 hayro = "0.7"
-quick-xml = "0.38"
+quick-xml = "0.41"
 zip = { version = "3", default-features = false, features = ["deflate"] }
 
 # ui
