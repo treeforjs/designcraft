@@ -1,43 +1,67 @@
-//! Design tokens (InDesign's four interface brightness levels), fonts and egui style.
+//! Design tokens (the shared craft-ui System / Light / Dark / High contrast appearances), fonts
+//! and egui style. The look follows treeforjs/craftworks DESIGN.md, not InDesign's.
 
 use std::sync::Arc;
 
 use egui::{Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Stroke, TextStyle, Visuals};
 use serde::{Deserialize, Serialize};
 
+/// The interface appearance: the shared craft-ui choices every craft app offers (System, Light,
+/// Dark, High contrast). InDesign's four brightness levels are gone; older settings and scripts
+/// that name them read as the nearest of these.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Brightness {
-    Dark,
+    /// Follow the operating system's light or dark setting.
     #[default]
-    MediumDark,
-    MediumLight,
+    System,
+    #[serde(alias = "MediumLight")]
     Light,
+    #[serde(alias = "MediumDark")]
+    Dark,
     /// Accessibility: black chrome, white text, yellow selection and focus.
     HighContrast,
 }
 
 impl Brightness {
-    pub const ALL: [Brightness; 5] = [Brightness::Dark, Brightness::MediumDark, Brightness::MediumLight, Brightness::Light, Brightness::HighContrast];
+    pub const ALL: [Brightness; 4] = [Brightness::System, Brightness::Light, Brightness::Dark, Brightness::HighContrast];
     pub fn label(self) -> &'static str {
-        match self {
-            Brightness::Dark => "Dark",
-            Brightness::MediumDark => "Medium Dark",
-            Brightness::MediumLight => "Medium Light",
-            Brightness::Light => "Light",
-            Brightness::HighContrast => "High Contrast",
-        }
+        self.craft().label()
     }
     pub fn id(self) -> &'static str {
-        match self {
-            Brightness::Dark => "dark",
-            Brightness::MediumDark => "mediumDark",
-            Brightness::MediumLight => "mediumLight",
-            Brightness::Light => "light",
-            Brightness::HighContrast => "highContrast",
-        }
+        self.craft().id()
     }
     pub fn parse(s: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|b| b.id().eq_ignore_ascii_case(s) || b.label().eq_ignore_ascii_case(s))
+        let s = s.trim();
+        if let Some(b) = Self::ALL.into_iter().find(|b| b.id().eq_ignore_ascii_case(s) || b.label().eq_ignore_ascii_case(s)) {
+            return Some(b);
+        }
+        // The retired InDesign brightness levels.
+        match s.to_ascii_lowercase().replace([' ', '-', '_'], "").as_str() {
+            "mediumdark" => Some(Brightness::Dark),
+            "mediumlight" => Some(Brightness::Light),
+            _ => craft_ui::Appearance::parse(s).map(Self::from_craft),
+        }
+    }
+    fn craft(self) -> craft_ui::Appearance {
+        match self {
+            Brightness::System => craft_ui::Appearance::System,
+            Brightness::Light => craft_ui::Appearance::Light,
+            Brightness::Dark => craft_ui::Appearance::Dark,
+            Brightness::HighContrast => craft_ui::Appearance::HighContrast,
+        }
+    }
+    fn from_craft(a: craft_ui::Appearance) -> Self {
+        match a {
+            craft_ui::Appearance::System => Brightness::System,
+            craft_ui::Appearance::Light => Brightness::Light,
+            craft_ui::Appearance::Dark => Brightness::Dark,
+            craft_ui::Appearance::HighContrast => Brightness::HighContrast,
+        }
+    }
+    /// The colour mode this choice draws in, given the desktop's theme. A page-layout app
+    /// prefers light when the desktop says nothing.
+    pub fn mode(self, system: Option<egui::Theme>) -> craft_ui::Mode {
+        self.craft().resolve(system, false)
     }
 }
 
@@ -90,165 +114,50 @@ fn hex(s: u32) -> Color32 {
 }
 
 impl Tokens {
+    /// The tokens for `b`, with System resolved as when the desktop reports nothing (see
+    /// [`Tokens::for_mode`]).
     pub fn for_brightness(b: Brightness) -> Self {
-        let dark = Tokens {
-            dark: true,
-            app_bar: hex(0x262626),
-            panel: hex(0x323232),
-            panel_darker: hex(0x282828),
-            input: hex(0x1f1f1f),
-            input_border: hex(0x4a4a4a),
-            divider: hex(0x1e1e1e),
-            text: hex(0xd8d8d8),
-            text_strong: hex(0xf2f2f2),
-            text_dim: hex(0xa3a3a3),
-            text_disabled: hex(0x6a6a6a),
-            icon: hex(0xc8c8c8),
-            hover: hex(0x424242),
-            tool_active: hex(0x1b1b1b),
-            accent: hex(0x378ef0),
-            accent_strong: hex(0x1473e6),
-            row_selected: hex(0x2d4f7c),
-            pasteboard: hex(0x232323),
-            ruler: hex(0x2e2e2e),
-            ruler_tick: hex(0x9a9a9a),
-            tab_inactive: hex(0x262626),
-            button: hex(0x404040),
-            radius: 1,
-            border: hex(0x1e1e1e),
-            field_border: hex(0x5a5a5a),
-            well: hex(0x1b1b1b),
-            well_rim: hex(0x3a3a3a),
-            ruler_text: hex(0xd8d8d8),
-            section_divider: hex(0x282828),
-            tab_strip: hex(0x282828),
+        Self::for_mode(b.mode(None))
+    }
+
+    /// DesignCraft's tokens for one of the shared craft-ui modes, so it matches the other apps.
+    pub fn for_mode(mode: craft_ui::Mode) -> Self {
+        let c = craft_ui::Tokens::new(mode, craft_ui::Density::Compact);
+        Tokens {
+            dark: mode != craft_ui::Mode::Light,
+            app_bar: c.bg,
+            panel: c.surface,
+            panel_darker: c.bg,
+            input: c.field,
+            input_border: c.border,
+            divider: c.divider,
+            text: c.text,
+            text_strong: c.text,
+            text_dim: c.text_muted,
+            text_disabled: c.text_disabled,
+            icon: c.icon,
+            hover: c.hover,
+            tool_active: c.pressed,
+            accent: c.accent,
+            accent_strong: c.accent_hover,
+            row_selected: c.accent_soft,
+            pasteboard: c.bg,
+            ruler: c.surface,
+            ruler_tick: c.text_faint,
+            tab_inactive: c.bg,
+            button: c.surface_raised,
+            radius: craft_ui::tokens::radius::SM,
+            border: c.divider,
+            field_border: c.border,
+            well: c.accent_soft,
+            well_rim: c.accent,
+            ruler_text: c.text_muted,
+            section_divider: c.divider,
+            tab_strip: c.bg,
+            // Page overlays keep their own hues: they must read on any artwork.
             smart_guide: hex(0x00c853),
             measure_bg: Color32::from_rgba_unmultiplied(70, 70, 70, 230),
             measure_text: Color32::WHITE,
-        };
-        match b {
-            Brightness::Dark => dark,
-            // Measured from InDesign 2026 (plan/indesign/11-observed-ui.md §1).
-            Brightness::MediumDark => Tokens {
-                app_bar: hex(0x535353),
-                panel: hex(0x535353),
-                panel_darker: hex(0x424242),
-                input: hex(0x454545),
-                input_border: hex(0x747474),
-                divider: hex(0x4b4b4b),
-                text: hex(0xffffff),
-                text_strong: hex(0xffffff),
-                text_dim: hex(0xb0b0b0),
-                text_disabled: hex(0x8a8a8a),
-                icon: hex(0xc2c2c2),
-                hover: hex(0x606060),
-                tool_active: hex(0x303030),
-                row_selected: hex(0x4a6a92),
-                pasteboard: hex(0x5e5e5e),
-                ruler: hex(0x1f1f1f),
-                ruler_tick: hex(0x858585),
-                tab_inactive: hex(0x424242),
-                button: hex(0x535353),
-                border: hex(0x383838),
-                field_border: hex(0x747474),
-                well: hex(0x303030),
-                well_rim: hex(0x565656),
-                ruler_text: hex(0xffffff),
-                section_divider: hex(0x4b4b4b),
-                tab_strip: hex(0x424242),
-                ..dark
-            },
-            Brightness::MediumLight => Tokens {
-                dark: false,
-                app_bar: hex(0xa8a8a8),
-                panel: hex(0xb8b8b8),
-                panel_darker: hex(0xaaaaaa),
-                input: hex(0xd6d6d6),
-                input_border: hex(0x8c8c8c),
-                divider: hex(0x9c9c9c),
-                text: hex(0x1e1e1e),
-                text_strong: hex(0x000000),
-                text_dim: hex(0x3c3c3c),
-                text_disabled: hex(0x7a7a7a),
-                icon: hex(0x2a2a2a),
-                hover: hex(0xc8c8c8),
-                tool_active: hex(0x9a9a9a),
-                row_selected: hex(0x8eb2e0),
-                pasteboard: hex(0xa0a0a0),
-                ruler: hex(0xc0c0c0),
-                ruler_tick: hex(0x3a3a3a),
-                tab_inactive: hex(0xa6a6a6),
-                button: hex(0xb8b8b8),
-                border: hex(0x8c8c8c),
-                field_border: hex(0x7a7a7a),
-                well: hex(0x9a9a9a),
-                well_rim: hex(0x8a8a8a),
-                ruler_text: hex(0x1e1e1e),
-                section_divider: hex(0x9c9c9c),
-                tab_strip: hex(0xa6a6a6),
-                ..dark
-            },
-            Brightness::Light => Tokens {
-                dark: false,
-                app_bar: hex(0xe4e4e4),
-                panel: hex(0xf0f0f0),
-                panel_darker: hex(0xe2e2e2),
-                input: hex(0xffffff),
-                input_border: hex(0xb4b4b4),
-                divider: hex(0xd0d0d0),
-                text: hex(0x1e1e1e),
-                text_strong: hex(0x000000),
-                text_dim: hex(0x555555),
-                text_disabled: hex(0x9a9a9a),
-                icon: hex(0x2c2c2c),
-                hover: hex(0xdddddd),
-                tool_active: hex(0xcfcfcf),
-                row_selected: hex(0xc4dbf7),
-                pasteboard: hex(0xd4d4d4),
-                ruler: hex(0xf2f2f2),
-                ruler_tick: hex(0x4a4a4a),
-                tab_inactive: hex(0xdcdcdc),
-                button: hex(0xf0f0f0),
-                border: hex(0xc4c4c4),
-                field_border: hex(0xa8a8a8),
-                well: hex(0xcfcfcf),
-                well_rim: hex(0xbdbdbd),
-                ruler_text: hex(0x1e1e1e),
-                section_divider: hex(0xd0d0d0),
-                tab_strip: hex(0xe2e2e2),
-                ..dark
-            },
-            Brightness::HighContrast => Tokens {
-                app_bar: hex(0x000000),
-                panel: hex(0x000000),
-                panel_darker: hex(0x000000),
-                input: hex(0x000000),
-                input_border: hex(0xffffff),
-                divider: hex(0xffffff),
-                text: hex(0xffffff),
-                text_strong: hex(0xffffff),
-                text_dim: hex(0xe6e6e6),
-                text_disabled: hex(0xa0a0a0),
-                icon: hex(0xffffff),
-                hover: hex(0x3d3d00),
-                tool_active: hex(0x5c5c00),
-                accent: hex(0xffeb3b),
-                accent_strong: hex(0xffd600),
-                row_selected: hex(0x5c5c00),
-                pasteboard: hex(0x1a1a1a),
-                ruler: hex(0x000000),
-                ruler_tick: hex(0xffffff),
-                tab_inactive: hex(0x000000),
-                button: hex(0x000000),
-                border: hex(0xffffff),
-                field_border: hex(0xffffff),
-                well: hex(0x5c5c00),
-                well_rim: hex(0xffeb3b),
-                ruler_text: hex(0xffffff),
-                section_divider: hex(0xffffff),
-                tab_strip: hex(0x000000),
-                ..dark
-            },
         }
     }
 }
@@ -326,8 +235,8 @@ pub fn apply(ctx: &egui::Context, t: &Tokens) {
     v.extreme_bg_color = t.input;
     v.faint_bg_color = t.panel_darker;
     v.window_stroke = Stroke::new(1.0, t.divider);
-    v.window_corner_radius = CornerRadius::same(4);
-    v.menu_corner_radius = CornerRadius::same(4);
+    v.window_corner_radius = CornerRadius::same(craft_ui::tokens::radius::XL);
+    v.menu_corner_radius = CornerRadius::same(craft_ui::tokens::radius::LG);
     v.selection.bg_fill = t.accent_strong;
     v.selection.stroke = Stroke::new(1.0, t.text_strong);
     v.hyperlink_color = t.accent;
@@ -348,7 +257,7 @@ pub fn apply(ctx: &egui::Context, t: &Tokens) {
     v.widgets.inactive.bg_stroke = Stroke::new(1.0, t.field_border);
     v.widgets.hovered.bg_stroke = Stroke::new(1.0, t.field_border);
     v.widgets.active.bg_stroke = Stroke::new(1.0, t.field_border);
-    // InDesign buttons are outline-only.
+    // Outlined buttons on the panel surface.
     v.widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
     v.widgets.inactive.bg_fill = t.input;
     v.popup_shadow = egui::epaint::Shadow { offset: [0, 4], blur: 12, spread: 0, color: Color32::from_black_alpha(90) };
@@ -366,7 +275,32 @@ pub fn apply(ctx: &egui::Context, t: &Tokens) {
 impl Tokens {
     /// Tokens stored by [`apply`].
     pub fn get(ctx: &egui::Context) -> Tokens {
-        ctx.data(|d| d.get_temp::<Tokens>(egui::Id::NULL)).unwrap_or_else(|| Tokens::for_brightness(Brightness::Dark))
+        ctx.data(|d| d.get_temp::<Tokens>(egui::Id::NULL)).unwrap_or_else(|| Tokens::for_brightness(Brightness::Light))
+    }
+}
+
+#[cfg(test)]
+mod appearance_tests {
+    use super::*;
+
+    /// The colours are craft-ui's, so DesignCraft matches the other craft apps; System follows
+    /// the desktop, and the retired InDesign levels still load.
+    #[test]
+    fn tokens_come_from_craft_ui_and_legacy_names_load() {
+        for b in Brightness::ALL {
+            assert_eq!(Brightness::parse(b.id()), Some(b));
+            assert_eq!(Brightness::parse(b.label()), Some(b));
+        }
+        let dark = craft_ui::Tokens::new(craft_ui::Mode::Dark, craft_ui::Density::Compact);
+        let t = Tokens::for_brightness(Brightness::Dark);
+        assert_eq!((t.panel, t.accent, t.text, t.dark), (dark.surface, dark.accent, dark.text, true));
+        assert!(!Tokens::for_brightness(Brightness::Light).dark && Tokens::for_brightness(Brightness::HighContrast).dark);
+        assert_eq!(Brightness::System.mode(Some(egui::Theme::Dark)), craft_ui::Mode::Dark);
+        assert_eq!(Brightness::System.mode(None), craft_ui::Mode::Light);
+        assert_eq!(Brightness::parse("mediumDark"), Some(Brightness::Dark));
+        assert_eq!(Brightness::parse("Medium Light"), Some(Brightness::Light));
+        assert_eq!(serde_json::from_str::<Brightness>("\"MediumDark\"").ok(), Some(Brightness::Dark));
+        assert_eq!(Brightness::parse("purple"), None);
     }
 }
 

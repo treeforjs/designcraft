@@ -226,7 +226,7 @@ pub struct UiState {
 impl Default for UiState {
     fn default() -> Self {
         UiState {
-            brightness: theme::Brightness::MediumDark,
+            brightness: theme::Brightness::System,
             screen_mode: ScreenMode::Normal,
             frame_edges: true,
             rulers: true,
@@ -691,8 +691,10 @@ impl DesignApp {
             }
             self.fonts_ready = true;
         }
-        if self.restyle {
-            theme::apply(ctx, &theme::Tokens::for_brightness(self.ui.brightness));
+        // System follows the desktop's light or dark setting while the app runs.
+        let mode = self.ui.brightness.mode(ctx.system_theme());
+        if self.restyle || theme::Tokens::get(ctx).dark != mode.is_dark() {
+            theme::apply(ctx, &theme::Tokens::for_mode(mode));
             self.restyle = false;
         }
         let now = ctx.input(|i| i.time);

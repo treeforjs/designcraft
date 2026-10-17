@@ -22,6 +22,7 @@ unicode-bidi-mirroring = { workspace = true }
 unicode-segmentation = { workspace = true }
 regex = { workspace = true }
 egui = { workspace = true }
+craft-ui = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 log = { workspace = true }
