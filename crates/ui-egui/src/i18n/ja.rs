@@ -1584,7 +1584,6 @@ pub(super) const TABLE: &[(&str, &str)] = &[
     ("Conditional Text", "条件付きテキスト"),
     ("Copyright Symbol", "著作権記号"),
     ("Current Page Number", "現在のページ番号"),
-    ("Cream", "クリーム"),
     ("Cyan", "シアン"),
     ("Dark", "暗い"),
     ("Delete Type from Path", "パス上のテキストを削除"),
@@ -1669,6 +1668,7 @@ pub(super) const TABLE: &[(&str, &str)] = &[
     ("Unassigned", "未指定"),
     ("URL:", "URL:"),
     ("Vertical:", "垂直方向:"),
+    ("Warm", "ウォーム"),
     ("Working CMYK", "作業用 CMYK"),
     ("Yellow", "イエロー"),
 ];
