@@ -158,7 +158,7 @@ pub const UI_COMMANDS: &[(&str, &str, Option<&str>, &str)] = &[
     ("window.newWorkspace", "New Workspace…", None, "{name} — saves the current bars and panel arrangement"),
     ("window.deleteWorkspace", "Delete Workspace…", None, "{name}"),
     ("window.resetWorkspace", "Reset Workspace", None, "{} — back to the current workspace as saved (or its defaults)"),
-    ("window.brightness", "Interface Color Theme", None, "{brightness: system|light|dark|highContrast}"),
+    ("window.brightness", "Interface Color Theme", None, "{brightness: system|light|cream|dim|dark|highContrast}"),
 ];
 
 /// Menu bar: (menu, entries). Entries: `cmd:<id>`, `ui:<id>`, `-` separator, `>Submenu` … `<`.
@@ -1412,7 +1412,10 @@ pub fn run_ui(app: &mut DesignApp, id: &str, p: &Value) -> Option<Result<Value, 
             Ok(Value::Null)
         }
         "window.brightness" => {
-            let b = p.get("brightness").and_then(Value::as_str).and_then(crate::theme::Brightness::parse).unwrap_or(crate::theme::Brightness::Dark);
+            let raw = p.get("brightness").and_then(Value::as_str).unwrap_or_default();
+            let Some(b) = crate::theme::Brightness::parse(raw) else {
+                return Some(Err(format!("window.brightness: unknown theme `{raw}` (system, light, cream, dim, dark, highContrast)")));
+            };
             app.ui.brightness = b;
             app.restyle = true;
             Ok(Value::Null)
