@@ -26,6 +26,7 @@ People trust DesignCraft with their layouts; a crash loses their work. **This ou
 - **Everything is a command.** User-visible behaviour = a command in `crates/engine/src/cmd/*` (id, label, menu path, shortcut, params doc, `enabled`, `run`) + tests. Tools emit commands (Begin/Preview/Commit). UI-only commands live in `crates/ui-egui/src/menus.rs` (`UI_COMMANDS`). The control channel and MCP reach all of them.
 - **Layering** is enforced by `cargo xtask layers`. Nothing below L6 depends on egui/eframe/winit/rfd. The UI crate is swappable.
 - **The UI is thin**: panels read engine state and act through `app.run(id, params)`. Colours come from `theme::Tokens`.
+- **The look is the shared craft design, not InDesign's** ([craftworks `DESIGN.md`](https://github.com/treeforjs/craftworks/blob/main/DESIGN.md)). Parity means InDesign's features and behaviour; `theme::Tokens` come from the `craft-ui` crate (System / Light / Dark / High contrast), shared with every craft app. Observe InDesign for behaviour only; never copy its greys, workspace names or panel chrome.
 - **Rust only** (no handwritten JS/TS). **Never break wasm** (`cargo xtask wasm`).
 - **Quality gates** before every commit: `cargo xtask ci` (fmt, clippy -D warnings, tests, assets, layers, wasm). One task id per commit (`M2.1: type tool caret navigation`).
 
