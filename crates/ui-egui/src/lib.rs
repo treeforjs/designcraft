@@ -693,7 +693,7 @@ impl DesignApp {
         }
         // System follows the desktop's light or dark setting while the app runs.
         let mode = self.ui.brightness.mode(ctx.system_theme());
-        if self.restyle || theme::Tokens::get(ctx).dark != mode.is_dark() {
+        if self.restyle || theme::Tokens::get(ctx).mode != mode {
             theme::apply(ctx, &theme::Tokens::for_mode(mode));
             self.restyle = false;
         }
